@@ -88,12 +88,6 @@ class Link(object):
         mydict = json.loads(line)
         for k, v in mydict.iteritems():
             self.__dict__[k] = v
-        #self.type = mydict['type']
-        #self.id   = mydict['id']
-        #self.user = mydict['user']
-        #self.item = mydict['item']
-        #self.dir  = mydict['dir']
-        #self.dist = mydict['dist']
         return(self)
 
 
@@ -489,7 +483,6 @@ class Krwlr(object):
     def db_pop_link(self):
         """ Return the next seed to crawl """
         try:
-            # gh_node = self._seed_queue.pop(0)
             gh_node = heapq.heappop(self._seed_queue)[1]
         except IndexError:
             gh_node = None
@@ -501,11 +494,6 @@ class Krwlr(object):
 
         Returns true if ID is new
         """
-        #val = self._user_hits_map[gh_node.id] \
-        #        = self._user_hits_map.setdefault(gh_node.id, 0) + 1
-        #val = self._item_hits_map[gh_node.id] \
-        #        = self._item_hits_map.setdefault(gh_node.id, 0) + 1
-        #self._seed_queue.append(gh_node)
         insert = False
         if gh_node.type in KRWLR_USER_T:
             if gh_node.dist < self._user_hits_map.setdefault(gh_node.id, sys.maxint):
