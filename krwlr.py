@@ -12,6 +12,7 @@ import itertools
 
 #import scipy as sp
 
+
 class ApiError(Exception):
     """ Raise if there is an API issue """
     pass
@@ -22,19 +23,78 @@ KRWLR_FOLLOWED_USER_LT = 40002
 KRWLR_FOLLOWED_ITEM_LT = 40003
 KRWLR_ITEM_FOLLOWER_LT = 40004
 
-#KRWLR_ITEM_COLLABORATORS_LT = 40005
+KRWLR_USER_T = [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, KRWLR_ITEM_FOLLOWER_LT]
+KRWLR_ITEM_T = [KRWLR_FOLLOWED_ITEM_LT]
+KRWLR_FOLLOWED_T = [KRWLR_FOLLOWED_USER_LT, KRWLR_FOLLOWED_ITEM_LT]
+KRWLR_FOLLOWER_T = [KRWLR_USER_FOLLOWER_LT, KRWLR_ITEM_FOLLOWER_LT]
 
 STATUS_OK = 200
 STATUS_NO_CONTENT = 204
 
+
 # {"item": "", "type": 40001, "id": 583231, "dir": "<", "user": "octocat", "dist": 0}
 # {"item": "", "type": 40001, "id": 466804, "dir": "<", "user": "tub78", "dist": 0}
-KRWLR_DEFAULT_T = KRWLR_USER_FOLLOWER_LT
-KRWLR_DEFAULT_ID = 583231
-KRWLR_DEFAULT_NAME = u'octocat'
-KRWLR_DEFAULT_ITEM = u'Hello-World'
-KRWLR_DEFAULT_DIR = '<'
-KRWLR_DEFAULT_DIST = 0
+class Link(object):
+    """
+    Minimal information to identify link
+
+    A link may be created based on lists of:
+     1. followed users
+     2. user followers
+     3. followed items
+     4. item followers
+    """
+
+    def __init__(self):
+        """ Default init """
+        self.type = KRWLR_USER_FOLLOWER_LT
+        self.id   = 583231
+        self.user = u'octocat'
+        self.item = u'Hello-World'
+        self.dir  = '<'
+        self.dist = 0
+
+    def __repr__(self):
+        """ Print """
+        return json.dumps(self.__dict__)
+
+    def init_json(self, link_type, distance, link_json):
+        """ Init from json """
+        # type, id
+        self.type = link_type
+        self.id = link_json.get(u'id')
+        self.dist = distance
+        # user, item
+        if link_type in KRWLR_USER_T:
+            self.user = link_json[u'login']
+            self.item = u''
+        elif link_type in KRWLR_ITEM_T:
+            self.user = link_json[u'owner'][u'login']
+            self.item = link_json[u'name']
+        else:
+            self.user = u''
+            self.item = u''
+        # directionality
+        if link_type in KRWLR_FOLLOWED_T:
+            self.dir = '>'
+        elif link_type in KRWLR_FOLLOWER_T:
+            self.dir = '<'
+        else:
+            self.dir = 'X'
+        return(self)
+
+    def parse(self, line):
+        """ Init from line """
+        mydict = json.loads(line)
+        for k, v in mydict.iteritems():
+            self.__dict__[k] = v
+        #self.type = mydict['type']
+        #self.id   = mydict['id']
+        #self.user = mydict['user']
+        #self.item = mydict['item']
+        #self.dir  = mydict['dir']
+        #self.dist = mydict['dist']
+        return(self)
 
 
 class Api(object):
@@ -135,7 +195,7 @@ class Api(object):
         """ Crawl a page (user or item) for followers and following lists """
         links = []
         dist = gh_node.dist + 1
-        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, KRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in KRWLR_USER_T:
             info = self.safe_retrieve_page(u'/users/%s' \
                     % (gh_node.user,))
             links += map(lambda RR: \
@@ -165,68 +225,6 @@ class Api(object):
             #
         self.update_count()
         return(info, links)
-
-
-class Link(object):
-    """
-    Minimal information to identify link
-
-    A link may be created based on lists of:
-     1. followed users
-     2. user followers
-     3. followed items
-     4. item followers
-    """
-
-    def __init__(self):
-        """ Default init """
-        self.type = KRWLR_DEFAULT_T
-        self.id   = KRWLR_DEFAULT_ID
-        self.user = KRWLR_DEFAULT_NAME
-        self.item = KRWLR_DEFAULT_ITEM
-        self.dir  = KRWLR_DEFAULT_DIR
-        self.dist = KRWLR_DEFAULT_DIST
-
-    def __repr__(self):
-        """ Print """
-        return json.dumps(self.__dict__)
-
-    def init_json(self, link_type, distance, link_json):
-        """ Init from json """
-        # type, id
-        self.type = link_type
-        self.id = link_json.get(u'id')
-        self.dist = distance
-        # user, item
-        if link_type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
-                KRWLR_ITEM_FOLLOWER_LT]:
-            self.user = link_json[u'login']
-            self.item = u''
-        elif link_type in [KRWLR_FOLLOWED_ITEM_LT]:
-            self.user = link_json[u'owner'][u'login']
-            self.item = link_json[u'name']
-        else:
-            self.user = KRWLR_DEFAULT_NAME
-            self.item = KRWLR_DEFAULT_ITEM
-        # directionality
-        if link_type in [KRWLR_FOLLOWED_USER_LT, KRWLR_FOLLOWED_ITEM_LT]:
-            self.dir = '>'
-        elif link_type in [KRWLR_USER_FOLLOWER_LT, KRWLR_ITEM_FOLLOWER_LT]:
-            self.dir = '<'
-        else:
-            self.dir = 'X'
-        return(self)
-
-    def init_line(self, line):
-        """ Init from line """
-        mydict = json.loads(line)
-        self.type = mydict['type']
-        self.id   = mydict['id']
-        self.user = mydict['user']
-        self.item = mydict['item']
-        self.dir  = mydict['dir']
-        self.dist = mydict['dist']
-        return(self)
 
 
 class Krwlr(object):
@@ -347,7 +345,7 @@ class Krwlr(object):
         try:
             with codecs.open(self._seed_file, 'r', 'utf-8') as fp:
                 for line in fp:
-                    if self.db_push_link(Link().init_line(line)):
+                    if self.db_push_link(Link().parse(line)):
                         num_seeds += 1
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
@@ -446,8 +444,7 @@ class Krwlr(object):
 
     def db_save_node(self, gh_node, node_info):
         """ Add node to DB """
-        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
-                KRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in KRWLR_USER_T:
             fp = self._user_file_fp
         else:
             fp = self._item_file_fp
@@ -510,8 +507,7 @@ class Krwlr(object):
         #        = self._item_hits_map.setdefault(gh_node.id, 0) + 1
         #self._seed_queue.append(gh_node)
         insert = False
-        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
-                KRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in KRWLR_USER_T:
             if gh_node.dist < self._user_hits_map.setdefault(gh_node.id, sys.maxint):
                 self._user_hits_map[gh_node.id] = gh_node.dist
                 insert = True
@@ -619,7 +615,6 @@ def main(args=None):
         logging.basicConfig(level=logging.INFO)
 
     #logging.disable({0: logging.CRITICAL, 1: logging.ERROR, 2: logging.WARNING, 3: logging.INFO, 4: logging.DEBUG, 5: logging.NOTSET}[options.verbosity])
-
 
     if options.test:
         _test()
