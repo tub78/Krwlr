@@ -12,30 +12,29 @@ import itertools
 
 #import scipy as sp
 
-
 class ApiError(Exception):
     """ Raise if there is an API issue """
     pass
 
 # types of nodes as characterized by route of discovery
-CRWLR_USER_FOLLOWER_LT = 40001
-CRWLR_FOLLOWED_USER_LT = 40002
-CRWLR_FOLLOWED_ITEM_LT = 40003
-CRWLR_ITEM_FOLLOWER_LT = 40004
+KRWLR_USER_FOLLOWER_LT = 40001
+KRWLR_FOLLOWED_USER_LT = 40002
+KRWLR_FOLLOWED_ITEM_LT = 40003
+KRWLR_ITEM_FOLLOWER_LT = 40004
 
-#CRWLR_ITEM_COLLABORATORS_LT = 40005
+#KRWLR_ITEM_COLLABORATORS_LT = 40005
 
 STATUS_OK = 200
 STATUS_NO_CONTENT = 204
 
 # {"item": "", "type": 40001, "id": 583231, "dir": "<", "user": "octocat", "dist": 0}
 # {"item": "", "type": 40001, "id": 466804, "dir": "<", "user": "tub78", "dist": 0}
-CRWLR_DEFAULT_T = CRWLR_USER_FOLLOWER_LT
-CRWLR_DEFAULT_ID = 583231
-CRWLR_DEFAULT_NAME = u'octocat'
-CRWLR_DEFAULT_ITEM = u'Hello-World'
-CRWLR_DEFAULT_DIR = '<'
-CRWLR_DEFAULT_DIST = 0
+KRWLR_DEFAULT_T = KRWLR_USER_FOLLOWER_LT
+KRWLR_DEFAULT_ID = 583231
+KRWLR_DEFAULT_NAME = u'octocat'
+KRWLR_DEFAULT_ITEM = u'Hello-World'
+KRWLR_DEFAULT_DIR = '<'
+KRWLR_DEFAULT_DIST = 0
 
 
 class Api(object):
@@ -57,7 +56,7 @@ class Api(object):
         self._fp = None
         # setup useragent
         # login
-        fp = self.safe_retrieve_page(u'/users/%s' % CRWLR_DEFAULT_NAME)
+        fp = self.safe_retrieve_page(u'/users/%s' % KRWLR_DEFAULT_NAME)
         self.update_count()
         logging.info('API> %s' %(repr(self),))
 
@@ -136,19 +135,19 @@ class Api(object):
         """ Crawl a page (user or item) for followers and following lists """
         links = []
         dist = gh_node.dist + 1
-        if gh_node.type in [CRWLR_USER_FOLLOWER_LT, CRWLR_FOLLOWED_USER_LT, CRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, KRWLR_ITEM_FOLLOWER_LT]:
             info = self.safe_retrieve_page(u'/users/%s' \
                     % (gh_node.user,))
             links += map(lambda RR: \
-                    Link().init_json(CRWLR_USER_FOLLOWER_LT, dist, RR), \
+                    Link().init_json(KRWLR_USER_FOLLOWER_LT, dist, RR), \
                     self.safe_retrieve_page(u'/users/%s/followers' \
                     % (gh_node.user,)))
             links += map(lambda RR: \
-                    Link().init_json(CRWLR_FOLLOWED_USER_LT, dist, RR), \
+                    Link().init_json(KRWLR_FOLLOWED_USER_LT, dist, RR), \
                     self.safe_retrieve_page(u'/users/%s/following' \
                     % (gh_node.user,)))
             links += map(lambda RR: \
-                    Link().init_json(CRWLR_FOLLOWED_ITEM_LT, dist, RR), \
+                    Link().init_json(KRWLR_FOLLOWED_ITEM_LT, dist, RR), \
                     self.safe_retrieve_page(u'/users/%s/watched' \
                     % (gh_node.user,)))
             #
@@ -156,11 +155,11 @@ class Api(object):
             info = self.safe_retrieve_page(u'/repos/%s/%s' \
                     % (gh_node.user, gh_node.item))
             links += map(lambda RR: \
-                    Link().init_json(CRWLR_ITEM_FOLLOWER_LT, dist, RR), \
+                    Link().init_json(KRWLR_ITEM_FOLLOWER_LT, dist, RR), \
                     self.safe_retrieve_page(u'/repos/%s/%s/watchers' \
                     % (gh_node.user, gh_node.item)))
             links += map(lambda RR: \
-                    Link().init_json(CRWLR_FOLLOWED_USER_LT, dist, RR), \
+                    Link().init_json(KRWLR_FOLLOWED_USER_LT, dist, RR), \
                     self.safe_retrieve_page(u'/repos/%s/%s/collaborators' \
                     % (gh_node.user, gh_node.item)))
             #
@@ -181,12 +180,12 @@ class Link(object):
 
     def __init__(self):
         """ Default init """
-        self.type = CRWLR_DEFAULT_T
-        self.id   = CRWLR_DEFAULT_ID
-        self.user = CRWLR_DEFAULT_NAME
-        self.item = CRWLR_DEFAULT_ITEM
-        self.dir  = CRWLR_DEFAULT_DIR
-        self.dist = CRWLR_DEFAULT_DIST
+        self.type = KRWLR_DEFAULT_T
+        self.id   = KRWLR_DEFAULT_ID
+        self.user = KRWLR_DEFAULT_NAME
+        self.item = KRWLR_DEFAULT_ITEM
+        self.dir  = KRWLR_DEFAULT_DIR
+        self.dist = KRWLR_DEFAULT_DIST
 
     def __repr__(self):
         """ Print """
@@ -199,20 +198,20 @@ class Link(object):
         self.id = link_json.get(u'id')
         self.dist = distance
         # user, item
-        if link_type in [CRWLR_USER_FOLLOWER_LT, CRWLR_FOLLOWED_USER_LT, \
-                CRWLR_ITEM_FOLLOWER_LT]:
+        if link_type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
+                KRWLR_ITEM_FOLLOWER_LT]:
             self.user = link_json[u'login']
             self.item = u''
-        elif link_type in [CRWLR_FOLLOWED_ITEM_LT]:
+        elif link_type in [KRWLR_FOLLOWED_ITEM_LT]:
             self.user = link_json[u'owner'][u'login']
             self.item = link_json[u'name']
         else:
-            self.user = CRWLR_DEFAULT_NAME
-            self.item = CRWLR_DEFAULT_ITEM
+            self.user = KRWLR_DEFAULT_NAME
+            self.item = KRWLR_DEFAULT_ITEM
         # directionality
-        if link_type in [CRWLR_FOLLOWED_USER_LT, CRWLR_FOLLOWED_ITEM_LT]:
+        if link_type in [KRWLR_FOLLOWED_USER_LT, KRWLR_FOLLOWED_ITEM_LT]:
             self.dir = '>'
-        elif link_type in [CRWLR_USER_FOLLOWER_LT, CRWLR_ITEM_FOLLOWER_LT]:
+        elif link_type in [KRWLR_USER_FOLLOWER_LT, KRWLR_ITEM_FOLLOWER_LT]:
             self.dir = '<'
         else:
             self.dir = 'X'
@@ -230,11 +229,11 @@ class Link(object):
         return(self)
 
 
-class Crawler(object):
+class Krwlr(object):
     """
     Download network of user-user, and user-item connectivity.
 
-    Crawler is initialized with seed information from a file on disk.  As
+    Krwlr is initialized with seed information from a file on disk.  As
     the program runs, a database of users, items, links, unexplored-
     nodes, failed-nodes, and node-hits, is constructed.  The database is
     periodically saved to disk, in case there are failures.  All data is saved
@@ -248,7 +247,7 @@ class Crawler(object):
       2) [DL/hits] user/item hits
       3) [DL/link] links
 
-    Crawler is for personal and non-profit use.
+    Krwlr is for personal and non-profit use.
     """
 
     def __init__(self, options):
@@ -447,8 +446,8 @@ class Crawler(object):
 
     def db_save_node(self, gh_node, node_info):
         """ Add node to DB """
-        if gh_node.type in [CRWLR_USER_FOLLOWER_LT, CRWLR_FOLLOWED_USER_LT, \
-                CRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
+                KRWLR_ITEM_FOLLOWER_LT]:
             fp = self._user_file_fp
         else:
             fp = self._item_file_fp
@@ -511,8 +510,8 @@ class Crawler(object):
         #        = self._item_hits_map.setdefault(gh_node.id, 0) + 1
         #self._seed_queue.append(gh_node)
         insert = False
-        if gh_node.type in [CRWLR_USER_FOLLOWER_LT, CRWLR_FOLLOWED_USER_LT, \
-                CRWLR_ITEM_FOLLOWER_LT]:
+        if gh_node.type in [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, \
+                KRWLR_ITEM_FOLLOWER_LT]:
             if gh_node.dist < self._user_hits_map.setdefault(gh_node.id, sys.maxint):
                 self._user_hits_map[gh_node.id] = gh_node.dist
                 insert = True
@@ -541,18 +540,18 @@ class Crawler(object):
         num_cfailures = 0
         while True:
             if num_downloaded >= self._max_download:
-                logging.info('Crawler>  Reached max download!!')
+                logging.info('Krwlr>  Reached max download!!')
                 break
             if self._api.is_exhausted():
-                logging.info('Crawler>  Api is exhausted!!')
+                logging.info('Krwlr>  Api is exhausted!!')
                 break
             # next link
             gh_node = self.db_pop_link()
             if not gh_node:
-                logging.info('Crawler>  No more nodes to explore!!')
+                logging.info('Krwlr>  No more nodes to explore!!')
                 break
             if gh_node.dist > self._max_distance:
-                logging.info('Crawler>  Reached max distance!!')
+                logging.info('Krwlr>  Reached max distance!!')
                 self.db_push_link(gh_node)
                 break
             iteration += 1
@@ -560,11 +559,11 @@ class Crawler(object):
                 # retrieve node info and links
                 node_info, gh_links = self._api.crawl(gh_node)
             except (ApiError, urllib2.HTTPError) as error_message:
-                logging.info('Crawler!> %s', (error_message,))
+                logging.info('Krwlr!> %s', (error_message,))
                 self.db_save_failed_node(gh_node)
                 num_cfailures += 1
                 if num_cfailures > self._max_cfailure:
-                    logging.info('Crawler>  Reached max failures!!')
+                    logging.info('Krwlr>  Reached max failures!!')
                     break
                 continue
             num_cfailures = 0
@@ -594,7 +593,7 @@ def main(args=None):
     import sys
     import argparse
 
-    parser = argparse.ArgumentParser(description='Download network of user-user, and user-item connectivity', epilog='Crawler is for personal and non-profit use')
+    parser = argparse.ArgumentParser(description='Download network of user-user, and user-item connectivity', epilog='Krwlr is for personal and non-profit use')
 
     parser.add_argument('--test'         , default=False     , action='store_true' , help=argparse.SUPPRESS)
     parser.add_argument('-v', '--verbosity' , default=-1     , type=int            , help='Level of verbosity for logging', \
@@ -626,7 +625,7 @@ def main(args=None):
         _test()
         return
 
-    crawler = Crawler(options)
+    crawler = Krwlr(options)
     try:
         crawler.crawl()
     except Exception as error_message:
