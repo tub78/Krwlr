@@ -9,32 +9,129 @@ import json
 import codecs
 import heapq
 import itertools
+import abc
+import argparse
 
 #import scipy as sp
+
 
 
 class ApiError(Exception):
     """ Raise if there is an API issue """
     pass
 
-# types of nodes as characterized by route of discovery
-KRWLR_USER_FOLLOWER_LT = 40001
-KRWLR_FOLLOWED_USER_LT = 40002
-KRWLR_FOLLOWED_ITEM_LT = 40003
-KRWLR_ITEM_FOLLOWER_LT = 40004
 
-KRWLR_USER_T = [KRWLR_USER_FOLLOWER_LT, KRWLR_FOLLOWED_USER_LT, KRWLR_ITEM_FOLLOWER_LT]
-KRWLR_ITEM_T = [KRWLR_FOLLOWED_ITEM_LT]
-KRWLR_FOLLOWED_T = [KRWLR_FOLLOWED_USER_LT, KRWLR_FOLLOWED_ITEM_LT]
-KRWLR_FOLLOWER_T = [KRWLR_USER_FOLLOWER_LT, KRWLR_ITEM_FOLLOWER_LT]
+class BasicApi(object):
+    """ Retrieves JSON """
+    __metaclass__ = abc.ABCMeta
 
-STATUS_OK = 200
-STATUS_NO_CONTENT = 204
+    # types of nodes as characterized by route of discovery
+    USER_FOLLOWER_LT = 40001
+    FOLLOWED_USER_LT = 40002
+    FOLLOWED_ITEM_LT = 40003
+    ITEM_FOLLOWER_LT = 40004
+    STATUS_OK = 200
+    STATUS_NO_CONTENT = 204
+
+    def __init__(self, link_class, options):
+        """ Initialize """
+        self._link_c = link_class
+        self._sleep = options.sleep
+        self._fp = None
+
+    def __repr__(self):
+        """ A string representation """
+        dict_copy = self.__dict__.copy()
+        dict_copy.pop('_link_c')
+        dict_copy.pop('_fp')
+        return json.dumps(dict_copy)
+
+    def get_fp(self):
+        return self._fp
+
+    def set_fp(self, fp):
+        self._fp = fp
+
+    def cleanup(self):
+        """ logout from network """
+        logging.info('API> %s' % (repr(self),))
+
+    def is_exhausted(self):
+        """ Are there enough API calls to crawl another page? """
+        return(self.calls_remaining() <= 0)
+
+    def safe_retrieve_page(self, url=''):
+        """ Retrieve URL and check that response looks ok """
+        msg = 'API failure:'
+        success = True
+        logging.info(u'API> fetching url : %s' % (url,))
+        time.sleep(self._sleep / float(1e6))
+        self._fp = urllib2.urlopen(url)
+        code = self.get_fp().getcode()
+        if not code in [BasicApi.STATUS_OK]:
+            success = False
+            msg += ' - status code: %d' % (code,)
+        # ... other checks
+        # hdr = self.get_fp().info(); status = hdr['status']
+        if not success:
+            logging.info(msg)
+            raise ApiError(msg)
+        return self.get_fp()
+
+    @staticmethod
+    def user_type():
+        return [BasicApi.USER_FOLLOWER_LT, BasicApi.FOLLOWED_USER_LT, BasicApi.ITEM_FOLLOWER_LT]
+
+    @staticmethod
+    def item_type():
+        return [BasicApi.FOLLOWED_ITEM_LT]
+
+    @staticmethod
+    def followed_type():
+        return [BasicApi.FOLLOWED_USER_LT, BasicApi.FOLLOWED_ITEM_LT]
+
+    @staticmethod
+    def follower_type():
+        return [BasicApi.USER_FOLLOWER_LT, BasicApi.ITEM_FOLLOWER_LT]
+
+    @abc.abstractmethod
+    def calls_remaining(self):
+        return
+
+    @abc.abstractmethod
+    def get_info(self, node):
+        return
+
+    @abc.abstractmethod
+    def get_user_followers(self, node):
+        return
+
+    @abc.abstractmethod
+    def get_followed_users(self, node):
+        return
+
+    @abc.abstractmethod
+    def get_item_followers(self, node):
+        return
+
+    @abc.abstractmethod
+    def get_followed_items(self, node):
+        return
+
+    def crawl(self, node):
+        """ Crawl a page (user or item) for followers and following lists """
+        info = None
+        links = []
+        info = self.get_info(node)
+        links += self.get_user_followers(node)
+        links += self.get_followed_users(node)
+        links += self.get_item_followers(node)
+        links += self.get_followed_items(node)
+        map(lambda lnk: lnk.set_distance(node.get_distance() + 1), links)
+        return(info, links)
 
 
-# {"item": "", "type": 40001, "id": 583231, "dir": "<", "user": "octocat", "dist": 0}
-# {"item": "", "type": 40001, "id": 466804, "dir": "<", "user": "tub78", "dist": 0}
-class Link(object):
+class BasicLink(object):
     """
     Minimal information to identify link
 
@@ -44,181 +141,50 @@ class Link(object):
      3. followed items
      4. item followers
     """
+    __metaclass__ = abc.ABCMeta
 
-    def __init__(self):
+    def __init__(self, link_type=BasicApi.USER_FOLLOWER_LT, link_id=583231, distance=0):
         """ Default init """
-        self.type = KRWLR_USER_FOLLOWER_LT
-        self.id   = 583231
-        self.user = u'octocat'
-        self.item = u'Hello-World'
-        self.dir  = '<'
-        self.dist = 0
+        self.type = link_type
+        self.id = link_id
+        self.dist = distance
 
     def __repr__(self):
         """ Print """
         return json.dumps(self.__dict__)
 
-    def init_json(self, link_type, distance, link_json):
-        """ Init from json """
-        # type, id
-        self.type = link_type
-        self.id = link_json.get(u'id')
-        self.dist = distance
-        # user, item
-        if link_type in KRWLR_USER_T:
-            self.user = link_json[u'login']
-            self.item = u''
-        elif link_type in KRWLR_ITEM_T:
-            self.user = link_json[u'owner'][u'login']
-            self.item = link_json[u'name']
-        else:
-            self.user = u''
-            self.item = u''
-        # directionality
-        if link_type in KRWLR_FOLLOWED_T:
-            self.dir = '>'
-        elif link_type in KRWLR_FOLLOWER_T:
-            self.dir = '<'
-        else:
-            self.dir = 'X'
-        return(self)
+    def set_type(self, new_type):
+        self.type = new_type
 
-    def parse(self, line):
+    def get_type(self):
+        return self.type
+
+    def set_id(self, new_id):
+        self.id = new_id
+
+    def get_id(self):
+        return self.id
+
+    def set_distance(self, new_dist):
+        self.dist = new_dist
+
+    def get_distance(self):
+        return self.dist
+
+    def get_direction(self):
+        """ directionality """
+        if self.type in BasicApi.followed_type():
+            direction = '>'
+        else:
+            direction = '<'
+        return direction
+
+    def parse_line(self, line):
         """ Init from line """
         mydict = json.loads(line)
         for k, v in mydict.iteritems():
             self.__dict__[k] = v
-        return(self)
-
-
-class Api(object):
-    """ Retrieves JSON """
-
-    _max_calls_per_iter = 5
-    _url_prefix = u'https://api.github.com'
-    _per_page = u'?per_page=100'
-    _login_url = u''
-    _username = u''
-    _password = u''
-    _useragent = u''
-
-    def __init__(self, options):
-        """ Initialize """
-        self._sleep = options.sleep
-        self._calls_limit = 0
-        self._calls_remaining = 0
-        self._fp = None
-        # setup useragent
-        # login
-        fp = self.safe_retrieve_page(u'/users/%s' % KRWLR_DEFAULT_NAME)
-        self.update_count()
-        logging.info('API> %s' %(repr(self),))
-
-    def __repr__(self):
-        """ A string representation """
-        dict_copy = self.__dict__.copy()
-        dict_copy.pop('_fp')
-        return json.dumps(dict_copy)
-
-    def cleanup(self):
-        """ logout from network """
-        logging.info('API> %s' %(repr(self),))
-
-    def is_exhausted(self):
-        """ Are there enough API calls to crawl another page? """
-        return(self._calls_remaining < self._max_calls_per_iter)
-
-    def update_count(self):
-        """ Update counts based on response header data """
-        hdr = self._fp.info()
-        self._calls_limit = int(hdr['X-RateLimit-Limit'])
-        self._calls_remaining = int(hdr['X-RateLimit-Remaining'])
-
-    def response_check(self):
-        """ Return silently, or issue a ApiError if there is trouble """
-        success = True
-        msg = 'API failure:'
-        code = self._fp.getcode()
-        if not code in [STATUS_OK]:
-            success = False
-            msg += ' - status code: %d' % (code,)
-        # ... other checks
-        # hdr = self._fp.info(); status = hdr['status']
-        if not success:
-            logging.info(msg)
-            raise ApiError(msg)
-
-    def safe_retrieve_additional_pages(self):
-        """ Return url for additional pages, if API pagination is active """
-        url = None
-        try:
-            header = self._fp.info()
-            if 'Link' in header:
-                link_header = header['Link']
-                while link_header:
-                    (named_link, sep, link_header) = link_header.partition(',')
-                    (link, sep, name) = named_link.partition(';')
-                    if name.find('rel="next"') >= 0:
-                        url = link.strip(' <>')
-                        break
-        except Exception as error_message:
-            logging.info('API!> %s', (error_message,))
-            logging.info('API> pagination failed ... returning None')
-            url = None
-        return(url)
-
-    def safe_retrieve_page(self, url=''):
-        """ Retrieve URL and check that response looks ok """
-        url = self._url_prefix + url + self._per_page
-        json_list = []
-        while True:
-            logging.info(u'GH_API> fetching url : %s' % (url,))
-            time.sleep(self._sleep / float(1e6))
-            self._fp = urllib2.urlopen(url)
-            self.response_check()
-            json_page = json.load(self._fp)
-            if not isinstance(json_page, list):
-                json_page = [json_page]
-            json_list += json_page
-            url = self.safe_retrieve_additional_pages()
-            if url is None:
-                break
-        return(json_list)
-
-    def crawl(self, gh_node):
-        """ Crawl a page (user or item) for followers and following lists """
-        links = []
-        dist = gh_node.dist + 1
-        if gh_node.type in KRWLR_USER_T:
-            info = self.safe_retrieve_page(u'/users/%s' \
-                    % (gh_node.user,))
-            links += map(lambda RR: \
-                    Link().init_json(KRWLR_USER_FOLLOWER_LT, dist, RR), \
-                    self.safe_retrieve_page(u'/users/%s/followers' \
-                    % (gh_node.user,)))
-            links += map(lambda RR: \
-                    Link().init_json(KRWLR_FOLLOWED_USER_LT, dist, RR), \
-                    self.safe_retrieve_page(u'/users/%s/following' \
-                    % (gh_node.user,)))
-            links += map(lambda RR: \
-                    Link().init_json(KRWLR_FOLLOWED_ITEM_LT, dist, RR), \
-                    self.safe_retrieve_page(u'/users/%s/watched' \
-                    % (gh_node.user,)))
-            #
-        else:
-            info = self.safe_retrieve_page(u'/repos/%s/%s' \
-                    % (gh_node.user, gh_node.item))
-            links += map(lambda RR: \
-                    Link().init_json(KRWLR_ITEM_FOLLOWER_LT, dist, RR), \
-                    self.safe_retrieve_page(u'/repos/%s/%s/watchers' \
-                    % (gh_node.user, gh_node.item)))
-            links += map(lambda RR: \
-                    Link().init_json(KRWLR_FOLLOWED_USER_LT, dist, RR), \
-                    self.safe_retrieve_page(u'/repos/%s/%s/collaborators' \
-                    % (gh_node.user, gh_node.item)))
-            #
-        self.update_count()
-        return(info, links)
+        return self
 
 
 class Krwlr(object):
@@ -242,14 +208,17 @@ class Krwlr(object):
     Krwlr is for personal and non-profit use.
     """
 
-    def __init__(self, options):
+    def __init__(self, api_class, link_class, options):
         """ Init """
-        self._api = Api(options)
+        self._api_c = api_class
+        self._link_c = link_class
         self._max_download  = options.max_download
         self._max_distance  = options.max_distance
         self._sleep         = options.sleep
         self._save_period   = options.save_period
         self._max_cfailure  = options.max_cfailure
+        self._api           = self._api_c(self._link_c, options)
+        logging.info('Krwl> Api: %s' % (repr(self._api),))
         self.db_init(options)
 
     def cleanup(self):
@@ -339,7 +308,7 @@ class Krwlr(object):
         try:
             with codecs.open(self._seed_file, 'r', 'utf-8') as fp:
                 for line in fp:
-                    if self.db_push_link(Link().parse(line)):
+                    if self.db_push_link(self._link_c().parse_line(line)):
                         num_seeds += 1
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
@@ -377,8 +346,8 @@ class Krwlr(object):
         num_seeds = 0
         try:
             with codecs.open(self._seed_file, 'w', 'utf-8') as fp:
-                for gh_node in self.db_iter_links():
-                    fp.write('%s\n' % (repr(gh_node), ))
+                for node in self.db_iter_links():
+                    fp.write('%s\n' % (repr(node), ))
                     num_seeds += 1
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
@@ -409,14 +378,22 @@ class Krwlr(object):
     def db_stats(self):
         """ Print DB summary stats """
         logging.info('\nDB> FILE SIZES:')
+        denom = float(pow(2, 20))
         try:
-            logging.info('      user = %7.1fmb' % (os.stat(self._user_file).st_size/float(pow(2, 20)),))
-            logging.info('      item = %7.1fmb' % (os.stat(self._item_file).st_size/float(pow(2, 20)),))
-            logging.info('      fail = %7.1fmb' % (os.stat(self._fail_file).st_size/float(pow(2, 20)),))
-            logging.info('      link = %7.1fmb' % (os.stat(self._link_file).st_size/float(pow(2, 20)),))
-            logging.info('      seed = %7.1fmb' % (os.stat(self._seed_file).st_size/float(pow(2, 20)),))
-            logging.info(' user_hits = %7.1fmb' % (os.stat(self._user_hits_file).st_size/float(pow(2, 20)),))
-            logging.info(' item_hits = %7.1fmb' % (os.stat(self._item_hits_file).st_size/float(pow(2, 20)),))
+            logging.info('      user = %7.1fmb' \
+                    % (os.stat(self._user_file).st_size / denom,))
+            logging.info('      item = %7.1fmb' \
+                    % (os.stat(self._item_file).st_size / denom,))
+            logging.info('      fail = %7.1fmb' \
+                    % (os.stat(self._fail_file).st_size / denom,))
+            logging.info('      link = %7.1fmb' \
+                    % (os.stat(self._link_file).st_size / denom,))
+            logging.info('      seed = %7.1fmb' \
+                    % (os.stat(self._seed_file).st_size / denom,))
+            logging.info(' user_hits = %7.1fmb' \
+                    % (os.stat(self._user_hits_file).st_size / denom,))
+            logging.info(' item_hits = %7.1fmb' \
+                    % (os.stat(self._item_hits_file).st_size / denom,))
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
             logging.error('DB!> Unable to stat DB files\n')
@@ -436,14 +413,14 @@ class Krwlr(object):
                     (self._fail_file, self._user_file, self._item_file, self._link_file))
             sys.exit(1)
 
-    def db_save_node(self, gh_node, node_info):
+    def db_save_node(self, node, node_info):
         """ Add node to DB """
-        if gh_node.type in KRWLR_USER_T:
+        if node.get_type() in BasicApi.user_type():
             fp = self._user_file_fp
         else:
             fp = self._item_file_fp
         try:
-            fp.write('%d ' % (gh_node.id,))
+            fp.write('%d ' % (node.get_id(),))
             json.dump(node_info, fp)
             fp.write('\n')
         except Exception as error_message:
@@ -453,11 +430,11 @@ class Krwlr(object):
             self.cleanup()
             sys.exit(1)
 
-    def db_save_failed_node(self, gh_node):
+    def db_save_failed_node(self, node):
         """ Writes failed nodes to DB """
         fp = self._fail_file_fp
         try:
-            fp.write('%s\n' % (repr(gh_node), ))
+            fp.write('%s\n' % (repr(node), ))
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
             logging.error('DB!> Unable to append failed file: %s' \
@@ -465,13 +442,13 @@ class Krwlr(object):
             self.cleanup()
             sys.exit(1)
 
-    def db_save_links(self, gh_node, gh_links):
+    def db_save_links(self, node, links):
         """ Add links to DB """
         fp = self._link_file_fp
         try:
-            fp.write('%d' % (gh_node.id,))
-            for gh_lnk in iter(gh_links):
-                fp.write(' %s:%d' % (gh_lnk.dir, gh_lnk.id))
+            fp.write('%d' % (node.get_id(),))
+            for lnk in iter(links):
+                fp.write(' %s:%d' % (lnk.get_direction(), lnk.get_id()))
             fp.write('\n')
         except Exception as error_message:
             logging.info('DB!> %s', (error_message,))
@@ -483,35 +460,37 @@ class Krwlr(object):
     def db_pop_link(self):
         """ Return the next seed to crawl """
         try:
-            gh_node = heapq.heappop(self._seed_queue)[1]
+            node = heapq.heappop(self._seed_queue)[1]
         except IndexError:
-            gh_node = None
-        return gh_node
+            node = None
+        return node
 
-    def db_push_link(self, gh_node):
+    def db_push_link(self, node):
         """
         Adds ID to reachable set
 
         Returns true if ID is new
         """
         insert = False
-        if gh_node.type in KRWLR_USER_T:
-            if gh_node.dist < self._user_hits_map.setdefault(gh_node.id, sys.maxint):
-                self._user_hits_map[gh_node.id] = gh_node.dist
+        if node.get_type() in BasicApi.user_type():
+            if node.get_distance() < \
+                    self._user_hits_map.setdefault(node.get_id(), sys.maxint):
+                self._user_hits_map[node.get_id()] = node.get_distance()
                 insert = True
         else:
-            if gh_node.dist < self._item_hits_map.setdefault(gh_node.id, sys.maxint):
-                self._item_hits_map[gh_node.id] = gh_node.dist
+            if node.get_distance() < \
+                    self._item_hits_map.setdefault(node.get_id(), sys.maxint):
+                self._item_hits_map[node.get_id()] = node.get_distance()
                 insert = True
         if insert:
-            heapq.heappush(self._seed_queue, (gh_node.dist, gh_node))
+            heapq.heappush(self._seed_queue, (node.get_distance(), node))
             return True
         else:
             return False
 
-    def db_push_links(self, gh_links):
+    def db_push_links(self, links):
         """ Add links to queue """
-        map(lambda gh_node: self.db_push_link(gh_node), gh_links)
+        map(lambda node: self.db_push_link(node), links)
 
     def db_iter_links(self):
         """ Iterate through links, without affecting data structure """
@@ -530,21 +509,21 @@ class Krwlr(object):
                 logging.info('Krwlr>  Api is exhausted!!')
                 break
             # next link
-            gh_node = self.db_pop_link()
-            if not gh_node:
+            node = self.db_pop_link()
+            if not node:
                 logging.info('Krwlr>  No more nodes to explore!!')
                 break
-            if gh_node.dist > self._max_distance:
+            if node.get_distance() > self._max_distance:
                 logging.info('Krwlr>  Reached max distance!!')
-                self.db_push_link(gh_node)
+                self.db_push_link(node)
                 break
             iteration += 1
             try:
                 # retrieve node info and links
-                node_info, gh_links = self._api.crawl(gh_node)
-            except (ApiError, urllib2.HTTPError) as error_message:
+                node_info, node_links = self._api.crawl(node)
+            except (ApiError, urllib2.HTTPError, AttributeError) as error_message:
                 logging.info('Krwlr!> %s', (error_message,))
-                self.db_save_failed_node(gh_node)
+                self.db_save_failed_node(node)
                 num_cfailures += 1
                 if num_cfailures > self._max_cfailure:
                     logging.info('Krwlr>  Reached max failures!!')
@@ -553,70 +532,75 @@ class Krwlr(object):
             num_cfailures = 0
             num_downloaded += 1
             # process info
-            self.db_save_node(gh_node, node_info)
+            self.db_save_node(node, node_info)
             # process links
-            self.db_save_links(gh_node, gh_links)
-            self.db_push_links(gh_links)
+            self.db_save_links(node, node_links)
+            self.db_push_links(node_links)
             # diagnostics
             if 0 == (iteration % self._save_period):
                 self.db_save()
             time.sleep(self._sleep / float(1e6))
 
+    @staticmethod
+    def parse_options(args):
+        """ Parse options """
 
-# usage: python FILE.py --test
-# instead of: python -m doctest -v FILE.py
+        parser = argparse.ArgumentParser(description='Download network of user-user, and user-item connectivity', epilog='Krwlr is for personal and non-profit use')
+
+        parser.add_argument('--test'         , default=False     , action='store_true' , help=argparse.SUPPRESS)
+        parser.add_argument('-v', '--verbosity' , default=-1     , type=int            , help='Level of verbosity for logging', \
+                choices=range(-1, 6))
+
+        parser.add_argument('--max_download' , default=10        , type=int            , help='Maximum pages to visit')
+        parser.add_argument('--max_distance' , default=1         , type=int            , help='Maximum graph distance to traverse')
+        parser.add_argument('--max_cfailure' , default=10        , type=int            , help='Maximum allowed number of consecutive Api failures')
+        parser.add_argument('--download_dir' , default='results' , type=str            , help='Directory where files containing crawl data are stored')
+
+        parser.add_argument('--sleep'        , default=1500000   , type=int            , help='Time (ms) to pause between Api calls')
+        parser.add_argument('--save_period'  , default=10        , type=int            , help='Number of iterations between backups')
+        parser.add_argument('--reset'        , default=False     , action='store_true' , help='Delete crawl data except seed file')
+
+        options, extra_args = parser.parse_known_args(args)
+
+        return(options, extra_args)
+
+
+# testing
 def _test():
     import doctest
     doctest.testmod(verbose=True)
 
 
-#
+# main
 def main(args=None):
     """ """
 
     import sys
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Download network of user-user, and user-item connectivity', epilog='Krwlr is for personal and non-profit use')
-
-    parser.add_argument('--test'         , default=False     , action='store_true' , help=argparse.SUPPRESS)
-    parser.add_argument('-v', '--verbosity' , default=-1     , type=int            , help='Level of verbosity for logging', \
-            choices=range(-1, 6))
-
-    parser.add_argument('--max_download' , default=10        , type=int            , help='Maximum pages to visit')
-    parser.add_argument('--max_distance' , default=1         , type=int            , help='Maximum graph distance to traverse')
-    parser.add_argument('--max_cfailure' , default=10        , type=int            , help='Maximum allowed number of consecutive Api failures')
-    parser.add_argument('--download_dir' , default='results' , type=str            , help='Directory where files containing crawl data are stored')
-
-    parser.add_argument('--sleep'        , default=1500000   , type=int            , help='Time (ms) to pause between Api calls')
-    parser.add_argument('--save_period'  , default=10        , type=int            , help='Number of iterations between backups')
-    parser.add_argument('--reset'        , default=False     , action='store_true' , help='Delete crawl data except seed file')
-
     if args is None:
         args = sys.argv[1:]
 
-    options, extra_args = parser.parse_known_args(args)
+    options, extra_args = Krwlr.parse_options(args)
 
     if options.verbosity >= 0:
         logging.basicConfig(level={0: logging.CRITICAL, 1: logging.ERROR, 2: logging.WARNING, 3: logging.INFO, 4: logging.DEBUG, 5: logging.NOTSET}[options.verbosity])
     else:
         logging.basicConfig(level=logging.INFO)
 
-    #logging.disable({0: logging.CRITICAL, 1: logging.ERROR, 2: logging.WARNING, 3: logging.INFO, 4: logging.DEBUG, 5: logging.NOTSET}[options.verbosity])
-
     if options.test:
         _test()
         return
 
-    crawler = Krwlr(options)
+    crawler = Krwlr(BasicApi, BasicLink, options)
     try:
         crawler.crawl()
     except Exception as error_message:
-        logging.info('API!> %s', (error_message,))
+        logging.info('%s!> %s' % (__file__, error_message,))
         sys.exit(1)
     crawler.cleanup()
 
-
-#
+# main:
+#       python FILE.py
+# doctests:
+#       python FILE.py --test
 if __name__ == '__main__':
     main()
