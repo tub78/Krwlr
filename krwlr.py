@@ -15,7 +15,6 @@ import argparse
 #import scipy as sp
 
 
-
 class ApiError(Exception):
     """ Raise if there is an API issue """
     pass
@@ -144,7 +143,11 @@ class BasicLink(object):
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, link_type=BasicApi.USER_FOLLOWER_LT, link_id=583231, distance=0):
-        """ Default init """
+        """
+        Default init
+
+        The default link sould be a suitable starting point for the crawl
+        """
         self.type = link_type
         self.id = link_id
         self.dist = distance
@@ -248,11 +251,18 @@ class Krwlr(object):
         self._item_file      = os.path.join(options.download_dir, 'item.dat')
         self._link_file      = os.path.join(options.download_dir, 'link.dat')
 
-        # check existence of critical files
-        if not os.path.exists(self._download_dir) \
-                or not os.path.exists(self._seed_file):
-            msg = 'DB!> Missing download directory %s and/or seed file %s'
-            logging.error(msg % (self._download_dir, self._seed_file))
+        # check existence of download dir
+        if not os.path.exists(self._download_dir):
+            msg = 'DB!> Missing download directory %s'
+            logging.error(msg % (self._download_dir,))
+            sys.exit(1)
+
+        # check existence of seed file
+        if not os.path.exists(self._seed_file):
+            msg = 'DB!> Missing seed file %s'
+            logging.error(msg % (self._seed_file,))
+            msg = 'DB!> Please use the following to initialize your seed file: \n\n\n%s\n\n'
+            logging.error(msg % (repr(self._link_c()),))
             sys.exit(1)
 
         # check for restart
@@ -279,7 +289,7 @@ class Krwlr(object):
             self._item_file_fp = codecs.open(self._item_file, 'a', 'utf-8')
             self._link_file_fp = codecs.open(self._link_file, 'a', 'utf-8')
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             msg = 'DB!> Trouble opening files; user: %s, item: %s, or link: %s'
             logging.error(msg % \
                     (self._user_file, self._item_file, self._link_file))
@@ -311,7 +321,7 @@ class Krwlr(object):
                     if self.db_push_link(self._link_c().parse_line(line)):
                         num_seeds += 1
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to read seed file: %s' % \
                     (self._seed_file,))
             sys.exit(1)
@@ -332,7 +342,7 @@ class Krwlr(object):
                         self._item_hits_map[uid] = hts
                         num_item_nodes += 1
             except Exception as error_message:
-                logging.info('DB!> %s', (error_message,))
+                logging.info('DB!> %s' % (error_message,))
                 logging.error('DB!> Unable to read hits file: %s, or %s' \
                         % (self._user_hits_file, self._item_hits_file))
                 sys.exit(1)
@@ -350,7 +360,7 @@ class Krwlr(object):
                     fp.write('%s\n' % (repr(node), ))
                     num_seeds += 1
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to write seeds file: %s' \
                     % (self._seed_file,))
             sys.exit(1)
@@ -368,7 +378,7 @@ class Krwlr(object):
                     fp.write('%d %d\n' % (uid, hts))
                     num_item_nodes += 1
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to write hits files: %s, or %s' \
                     % (self._user_hits_file, self._item_hits_file,))
             sys.exit(1)
@@ -395,7 +405,7 @@ class Krwlr(object):
             logging.info(' item_hits = %7.1fmb' \
                     % (os.stat(self._item_hits_file).st_size / denom,))
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to stat DB files\n')
 
     def db_cleanup(self):
@@ -407,7 +417,7 @@ class Krwlr(object):
             self._item_file_fp.close()
             self._link_file_fp.close()
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             msg = 'DB!> Trouble closing files; fail %s, user: %s, item: %s, or link: %s'
             logging.error(msg % \
                     (self._fail_file, self._user_file, self._item_file, self._link_file))
@@ -424,7 +434,7 @@ class Krwlr(object):
             json.dump(node_info, fp)
             fp.write('\n')
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to append to node file: %s' \
                     % (fp.name,))
             self.cleanup()
@@ -436,7 +446,7 @@ class Krwlr(object):
         try:
             fp.write('%s\n' % (repr(node), ))
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to append failed file: %s' \
                     % (self._fail_file,))
             self.cleanup()
@@ -451,7 +461,7 @@ class Krwlr(object):
                 fp.write(' %s:%d' % (lnk.get_direction(), lnk.get_id()))
             fp.write('\n')
         except Exception as error_message:
-            logging.info('DB!> %s', (error_message,))
+            logging.info('DB!> %s' % (error_message,))
             logging.error('DB!> Unable to append to links file: %s' \
                     % (self._link_file,))
             self.cleanup()
@@ -522,7 +532,7 @@ class Krwlr(object):
                 # retrieve node info and links
                 node_info, node_links = self._api.crawl(node)
             except (ApiError, urllib2.HTTPError, AttributeError) as error_message:
-                logging.info('Krwlr!> %s', (error_message,))
+                logging.info('Krwlr!> %s' % (error_message,))
                 self.db_save_failed_node(node)
                 num_cfailures += 1
                 if num_cfailures > self._max_cfailure:

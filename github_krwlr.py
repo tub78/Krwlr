@@ -74,7 +74,7 @@ class GitHubApi(BasicApi):
                         url = link.strip(' <>')
                         break
         except Exception as error_message:
-            logging.info('API!> %s', (error_message,))
+            logging.info('API!> %s' % (error_message,))
             logging.info('API> pagination failed ... returning None')
             url = None
         return url
